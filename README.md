@@ -27,22 +27,21 @@ Store and recall findings from code analysis sessions. Claude can record bugs, s
 - [Bun](https://bun.sh) >= 1.0.0
 - macOS (launchd scheduler; the findings tool works on any platform)
 
-## Setup
+## Installation
 
-Add boost as an MCP server in your Claude Code project. Create `.mcp.json` in your project root:
+Install boost as a Claude Code plugin:
 
-```json
-{
-  "mcpServers": {
-    "boost": {
-      "command": "bash",
-      "args": ["./path/to/claude-boost/scripts/run-mcp.sh"]
-    }
-  }
-}
+```bash
+claude plugin add --name boost /path/to/claude-boost
 ```
 
-The startup script handles `bun install` and launching the server automatically.
+Or if hosted on GitHub:
+
+```bash
+claude plugin add --name boost github:nhiquach/claude-boost
+```
+
+This registers the MCP server so it's available in all your Claude Code sessions automatically.
 
 ## Usage
 

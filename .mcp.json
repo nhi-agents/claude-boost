@@ -1,8 +1,6 @@
 {
-  "mcpServers": {
-    "boost": {
-      "command": "bash",
-      "args": ["./scripts/run-mcp.sh"]
-    }
+  "boost": {
+    "command": "bash",
+    "args": ["${CLAUDE_PLUGIN_ROOT}/scripts/run-mcp.sh"]
   }
 }
