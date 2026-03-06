@@ -1,0 +1,25 @@
+{
+  "name": "claude-boost",
+  "version": "0.1.0",
+  "description": "Overnight automation and superpowers for Claude Code",
+  "type": "module",
+  "scripts": {
+    "start": "bun run src/index.ts",
+    "dev": "bun run --watch src/index.ts",
+    "test": "bun test",
+    "hooks": "bun run src/hooks/entry.ts"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "@sinclair/typebox": "^0.34.45",
+    "croner": "^8.1.2",
+    "cronstrue": "^2.52.0"
+  },
+  "devDependencies": {
+    "@types/bun": "latest",
+    "typescript": "^5.7.0"
+  },
+  "engines": {
+    "bun": ">=1.0.0"
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "boost": {
+      "command": "bash",
+      "args": ["./scripts/run-mcp.sh"]
+    }
+  }
+}
