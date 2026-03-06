@@ -1,5 +1,5 @@
 ---
-name: Boost Findings
+name: boost:findings
 description: This skill should be used when the user asks to "record a finding", "log a bug", "search findings", "list findings", "track issue", "add finding", or needs to store and recall code analysis results.
 user-invocable: true
 allowed-tools:

@@ -1,5 +1,5 @@
 ---
-name: Boost Nightshift
+name: boost:nightshift
 description: This skill should be used when the user asks to "schedule a task", "add overnight task", "list scheduled tasks", "run task now", "remove scheduled task", "nightshift", "cron task", "automate overnight", or needs to manage scheduled Claude Code tasks.
 user-invocable: true
 allowed-tools:
