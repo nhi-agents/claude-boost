@@ -153,7 +153,7 @@ ${intervalXml}
     <key>EnvironmentVariables</key>
     <dict>
       <key>PATH</key>
-      <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:${escapeXml(`${process.env.HOME}/.bun/bin`)}</string>
+      <string>/usr/local/bin:/usr/bin:/bin:/opt/homebrew/bin:${escapeXml(`${process.env.HOME}/.bun/bin`)}:${escapeXml(`${process.env.HOME}/.local/bin`)}</string>
       <key>HOME</key>
       <string>${escapeXml(process.env.HOME ?? "")}</string>
 ${envXml}
@@ -163,7 +163,8 @@ ${envXml}
 }
 
 function buildScript(task: NightshiftTask): string {
-  const claudeArgs = ["claude", "-p", shellEscape(task.command)];
+  const claudeBin = Bun.which("claude") ?? "claude";
+  const claudeArgs = [claudeBin, "-p", shellEscape(task.command)];
   if (task.skipPermissions) {
     claudeArgs.push("--dangerously-skip-permissions");
   }
