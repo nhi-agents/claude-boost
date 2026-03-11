@@ -26,6 +26,10 @@ Store and recall findings from code analysis sessions. Claude can record bugs, s
 
 - [Bun](https://bun.sh) >= 1.0.0
 - macOS (launchd scheduler; the findings tool works on any platform)
+- [GNU coreutils](https://formulae.brew.sh/formula/coreutils) — provides `timeout`, used to enforce time limits on scheduled tasks
+  ```bash
+  brew install coreutils
+  ```
 
 ## Installation
 

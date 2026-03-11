@@ -196,6 +196,7 @@ git worktree add -b "$BRANCH" "$WORKTREE_DIR" HEAD
 cd "$WORKTREE_DIR"
 
 # Run Claude (caffeinate prevents sleep during execution)
+# Allow non-zero exits from Claude/timeout (exit 124 = timeout reached)
 ${caffeinatePrefix}timeout ${task.timeout} ${claudeArgs.join(" ")} || true
 
 # Commit and push if there are changes

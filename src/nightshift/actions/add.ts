@@ -25,6 +25,16 @@ export async function handleAdd(input: NightshiftInput) {
     };
   }
 
+  // Verify GNU timeout is available (required for scheduled execution)
+  if (!Bun.which("timeout")) {
+    return {
+      success: false,
+      error:
+        "GNU timeout is required for scheduled tasks but was not found. " +
+        "Install it with: brew install coreutils",
+    };
+  }
+
   const config = getConfig();
 
   const task: NightshiftTask = {
