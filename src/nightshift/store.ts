@@ -146,6 +146,106 @@ export function getAllTasks(opts?: {
   return rows.map(rowToTask);
 }
 
+export function updateTask(
+  id: string,
+  updates: Partial<
+    Pick<
+      NightshiftTask,
+      | "name"
+      | "description"
+      | "schedule"
+      | "timezone"
+      | "command"
+      | "workingDirectory"
+      | "timeout"
+      | "enabled"
+      | "skipPermissions"
+      | "wakeOnSchedule"
+      | "worktree"
+      | "tags"
+      | "env"
+    >
+  >,
+): NightshiftTask | null {
+  const db = getDb();
+  const sets: string[] = [];
+  const params: (string | number | null)[] = [];
+
+  if (updates.name !== undefined) {
+    sets.push("name = ?");
+    params.push(updates.name);
+  }
+  if (updates.description !== undefined) {
+    sets.push("description = ?");
+    params.push(updates.description);
+  }
+  if (updates.schedule !== undefined) {
+    sets.push("schedule = ?");
+    params.push(updates.schedule);
+  }
+  if (updates.timezone !== undefined) {
+    sets.push("timezone = ?");
+    params.push(updates.timezone);
+  }
+  if (updates.command !== undefined) {
+    sets.push("command = ?");
+    params.push(updates.command);
+  }
+  if (updates.workingDirectory !== undefined) {
+    sets.push("working_directory = ?");
+    params.push(updates.workingDirectory);
+  }
+  if (updates.timeout !== undefined) {
+    sets.push("timeout = ?");
+    params.push(updates.timeout);
+  }
+  if (updates.enabled !== undefined) {
+    sets.push("enabled = ?");
+    params.push(updates.enabled ? 1 : 0);
+  }
+  if (updates.skipPermissions !== undefined) {
+    sets.push("skip_permissions = ?");
+    params.push(updates.skipPermissions ? 1 : 0);
+  }
+  if (updates.wakeOnSchedule !== undefined) {
+    sets.push("wake_on_schedule = ?");
+    params.push(updates.wakeOnSchedule ? 1 : 0);
+  }
+  if (updates.worktree !== undefined) {
+    sets.push("worktree_enabled = ?");
+    params.push(updates.worktree.enabled ? 1 : 0);
+    if (updates.worktree.basePath !== undefined) {
+      sets.push("worktree_base_path = ?");
+      params.push(updates.worktree.basePath ?? null);
+    }
+    sets.push("worktree_branch_prefix = ?");
+    params.push(updates.worktree.branchPrefix);
+    sets.push("worktree_remote_name = ?");
+    params.push(updates.worktree.remoteName);
+  }
+  if (updates.tags !== undefined) {
+    sets.push("tags = ?");
+    params.push(JSON.stringify(updates.tags));
+  }
+  if (updates.env !== undefined) {
+    sets.push("env = ?");
+    params.push(JSON.stringify(updates.env));
+  }
+
+  if (sets.length === 0) return getTask(id);
+
+  sets.push("updated_at = ?");
+  params.push(new Date().toISOString());
+
+  params.push(id);
+  db.run(
+    `UPDATE nightshift_tasks SET ${sets.join(", ")} WHERE id = ?`,
+    params,
+  );
+
+  return getTask(id);
+}
+
 export function deleteTask(id: string): boolean {
   const db = getDb();
   const result = db.run(

@@ -6,28 +6,28 @@ export const TOOLS: Tool[] = [
     description:
       "Schedule and manage automated Claude Code tasks that run overnight or on a cron schedule. " +
       "Supports worktree isolation so each task runs on its own branch. " +
-      "Actions: add (create scheduled task), list (show all tasks), run (execute now), " +
+      "Actions: add (create scheduled task), edit (update task fields), list (show all tasks), run (execute now), " +
       "remove (delete task), status (check scheduler health), logs (read output), history (execution records).",
     inputSchema: {
       type: "object" as const,
       properties: {
         action: {
           type: "string",
-          enum: ["add", "list", "run", "remove", "status", "logs", "history"],
+          enum: ["add", "edit", "list", "run", "remove", "status", "logs", "history"],
           description: "The operation to perform",
         },
         name: {
           type: "string",
-          description: "Task name (for add)",
+          description: "Task name (for add/edit)",
         },
         schedule: {
           type: "string",
           description:
-            'Cron expression, e.g. "0 2 * * *" for 2am daily (for add)',
+            'Cron expression, e.g. "0 2 * * *" for 2am daily (for add/edit)',
         },
         command: {
           type: "string",
-          description: "The prompt/command for Claude to execute (for add)",
+          description: "The prompt/command for Claude to execute (for add/edit)",
         },
         description: {
           type: "string",
@@ -76,7 +76,7 @@ export const TOOLS: Tool[] = [
         },
         taskId: {
           type: "string",
-          description: "Task ID (for run/remove/status/logs/history)",
+          description: "Task ID (for edit/run/remove/status/logs/history)",
         },
         tag: {
           type: "string",

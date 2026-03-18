@@ -1,6 +1,7 @@
 import type { NightshiftInput } from "../types/index.js";
 import {
   handleAdd,
+  handleEdit,
   handleRun,
   handleList,
   handleRemove,
@@ -13,6 +14,8 @@ export async function handleNightshift(input: NightshiftInput) {
   switch (input.action) {
     case "add":
       return handleAdd(input);
+    case "edit":
+      return handleEdit(input);
     case "run":
       return handleRun(input);
     case "list":

@@ -68,6 +68,7 @@ export interface Finding {
 export interface NightshiftInput {
   action:
     | "add"
+    | "edit"
     | "list"
     | "run"
     | "remove"
