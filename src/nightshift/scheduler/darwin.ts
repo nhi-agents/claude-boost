@@ -1,6 +1,7 @@
 import { BaseScheduler } from "./base.js";
 import { shellEscape, sanitizeForComment } from "./shell.js";
 import { getConfig } from "../../config/index.js";
+import { getAllTasks } from "../store.js";
 import type { NightshiftTask } from "../../types/index.js";
 import { Cron } from "croner";
 import { mkdirSync, writeFileSync, existsSync, unlinkSync, readdirSync } from "fs";
@@ -9,6 +10,31 @@ import { join } from "path";
 const PLIST_DIR = `${process.env.HOME}/Library/LaunchAgents`;
 const PLIST_PREFIX = "com.claude.boost";
 const SCRIPTS_DIR = `${process.env.HOME}/.claude/boost/scripts`;
+const DAEMON_PLIST_DIR = "/Library/LaunchDaemons";
+const WAKE_KICKER_LABEL = `${PLIST_PREFIX}.wake-kicker`;
+const WAKE_KICKER_PLIST_PATH = `${DAEMON_PLIST_DIR}/${WAKE_KICKER_LABEL}.plist`;
+const WAKE_LEAD_MINUTES = 2;
+
+/**
+ * Generate a copy-pasteable setup command that configures passwordless sudo
+ * for wake scheduling. Emitted in error messages when sudo fails.
+ * Uses a heredoc inside bash -c for robust multi-line content.
+ */
+function wakeSetupCommand(): string {
+  const user = process.env.USER ?? "$(whoami)";
+  const dp = WAKE_KICKER_PLIST_PATH;
+  return `sudo bash -c 'cat > /etc/sudoers.d/boost << "BOOST_EOF"
+# Boost: wakeOnSchedule support for Claude Code scheduled tasks.
+${user} ALL=(root) NOPASSWD: /usr/bin/pmset schedule *
+${user} ALL=(root) NOPASSWD: /bin/cp /tmp/${WAKE_KICKER_LABEL}.plist ${dp}
+${user} ALL=(root) NOPASSWD: /bin/chmod 644 ${dp}
+${user} ALL=(root) NOPASSWD: /usr/sbin/chown root\\:wheel ${dp}
+${user} ALL=(root) NOPASSWD: /bin/launchctl bootstrap system ${dp}
+${user} ALL=(root) NOPASSWD: /bin/launchctl bootout system/${WAKE_KICKER_LABEL}
+${user} ALL=(root) NOPASSWD: /bin/rm ${dp}
+BOOST_EOF
+chmod 440 /etc/sudoers.d/boost'`;
+}
 
 function escapeXml(str: string): string {
   return str
@@ -101,6 +127,98 @@ function cronToCalendarInterval(
 
   const intervals = cartesian(expanded, 0, {});
   return intervals.length > 0 ? intervals : [{}]; // empty = every minute
+}
+
+/**
+ * Shift StartCalendarInterval entries back by `minutes` to create
+ * a pre-task wake schedule. Handles minute/hour wraparound.
+ *
+ * Note: day-boundary crossing (e.g., 00:01 → 23:59) adjusts Hour
+ * but does not adjust Day/Weekday, which is correct for daily tasks
+ * but may misfire for weekly/monthly tasks at midnight. Acceptable for V1.
+ */
+function shiftIntervalsBack(
+  intervals: Array<Record<string, number>>,
+  minutes: number,
+): Array<Record<string, number>> {
+  return intervals.map((interval) => {
+    const result = { ...interval };
+    if (!("Minute" in result)) return result;
+
+    result.Minute -= minutes;
+    if (result.Minute < 0) {
+      result.Minute += 60;
+      if ("Hour" in result) {
+        result.Hour -= 1;
+        if (result.Hour < 0) {
+          result.Hour += 24;
+        }
+      }
+    }
+
+    return result;
+  });
+}
+
+function buildWakeKickerScript(): string {
+  const logFile = join(getConfig().nightshift.logDir, "wake-kicker.log");
+  return `#!/bin/bash
+# Boost: Promote DarkWake to Full Wake for scheduled LaunchAgents.
+# On battery, pmset wakeorpoweron only triggers a DarkWake (no display/GUI).
+# caffeinate -u asserts user activity, turning on the display and establishing
+# the Aqua session so LaunchAgents can fire on schedule.
+set -euo pipefail
+
+LOG=${shellEscape(logFile)}
+echo "$(date '+%Y-%m-%d %H:%M:%S') wake-kicker: promoting to full wake" >> "$LOG"
+
+# Assert user activity: turns display on, promotes DarkWake to UserWake.
+# Hold for 5 minutes — enough for LaunchAgents to start and caffeinate themselves.
+/usr/bin/caffeinate -u -t 300
+
+echo "$(date '+%Y-%m-%d %H:%M:%S') wake-kicker: done" >> "$LOG"
+`;
+}
+
+function buildWakeKickerPlist(
+  scriptPath: string,
+  intervals: Array<Record<string, number>>,
+): string {
+  const logDir = getConfig().nightshift.logDir;
+  const intervalXml = intervals
+    .map((interval) => {
+      const entries = Object.entries(interval)
+        .map(
+          ([k, v]) =>
+            `        <key>${escapeXml(k)}</key>\n        <integer>${v}</integer>`,
+        )
+        .join("\n");
+      return `      <dict>\n${entries}\n      </dict>`;
+    })
+    .join("\n");
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${escapeXml(WAKE_KICKER_LABEL)}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>${escapeXml(scriptPath)}</string>
+    </array>
+    <key>StartCalendarInterval</key>
+    <array>
+${intervalXml}
+    </array>
+    <key>StandardOutPath</key>
+    <string>${escapeXml(`${logDir}/wake-kicker.out.log`)}</string>
+    <key>StandardErrorPath</key>
+    <string>${escapeXml(`${logDir}/wake-kicker.err.log`)}</string>
+</dict>
+</plist>`;
 }
 
 function buildPlist(task: NightshiftTask, scriptPath: string): string {
@@ -230,6 +348,19 @@ export class DarwinScheduler extends BaseScheduler {
     return join(SCRIPTS_DIR, `${taskId}.sh`);
   }
 
+  /** Run a command with sudo -n (non-interactive). */
+  private async sudo(
+    ...args: string[]
+  ): Promise<{ ok: boolean; stderr: string }> {
+    const proc = Bun.spawn(["sudo", "-n", ...args], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+    await proc.exited;
+    const stderr = await new Response(proc.stderr).text();
+    return { ok: proc.exitCode === 0, stderr: stderr.trim() };
+  }
+
   /**
    * Schedule macOS to wake from sleep before a task runs.
    * Uses `sudo -n pmset` (non-interactive) — requires passwordless sudo for pmset.
@@ -264,8 +395,8 @@ export class DarwinScheduler extends BaseScheduler {
         return {
           scheduled: false,
           error:
-            "sudo requires a password. To enable wake scheduling, add to /etc/sudoers.d/boost:\n" +
-            `  ${process.env.USER} ALL=(root) NOPASSWD: /usr/bin/pmset schedule *`,
+            "sudo requires a password for pmset. Run this once to enable wake scheduling:\n\n" +
+            wakeSetupCommand(),
         };
       }
       return { scheduled: false, error: `pmset failed: ${stderr.trim()}` };
@@ -350,6 +481,126 @@ bun run src/nightshift/scheduler/refresh-wakes.ts
     await proc.exited;
   }
 
+  /**
+   * Install or update the wake-kicker LaunchDaemon.
+   * Aggregates schedules from all wake-enabled tasks and creates a single
+   * system-level daemon that promotes DarkWake → Full Wake via caffeinate -u.
+   *
+   * This is necessary because pmset wakeorpoweron on battery only triggers
+   * a DarkWake (no display, no Aqua session), and LaunchAgents require Aqua.
+   * The daemon runs in the System session (active during DarkWake) and asserts
+   * user activity to establish the Aqua session before LaunchAgents fire.
+   */
+  async ensureWakeKicker(): Promise<{ installed: boolean; error?: string }> {
+    const tasks = getAllTasks({ enabledOnly: true });
+    const wakeTasks = tasks.filter((t) => t.wakeOnSchedule);
+
+    if (wakeTasks.length === 0) {
+      await this.removeWakeKicker();
+      return { installed: false };
+    }
+
+    // Collect all intervals from wake-enabled tasks, shifted back 2 minutes
+    const allIntervals: Array<Record<string, number>> = [];
+    for (const task of wakeTasks) {
+      const taskIntervals = cronToCalendarInterval(task.schedule);
+      allIntervals.push(
+        ...shiftIntervalsBack(taskIntervals, WAKE_LEAD_MINUTES),
+      );
+    }
+
+    // Deduplicate intervals (multiple tasks at the same time)
+    const seen = new Set<string>();
+    const uniqueIntervals = allIntervals.filter((interval) => {
+      const key = JSON.stringify(interval);
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    });
+
+    // Write the wake-kicker script
+    mkdirSync(SCRIPTS_DIR, { recursive: true });
+    const scriptPath = join(SCRIPTS_DIR, "wake-kicker.sh");
+    writeFileSync(scriptPath, buildWakeKickerScript(), { mode: 0o755 });
+
+    // Generate the plist and write to temp location
+    const plist = buildWakeKickerPlist(scriptPath, uniqueIntervals);
+    const tmpPlist = `/tmp/${WAKE_KICKER_LABEL}.plist`;
+    writeFileSync(tmpPlist, plist);
+
+    const daemonPlist = join(
+      DAEMON_PLIST_DIR,
+      `${WAKE_KICKER_LABEL}.plist`,
+    );
+
+    // Unload existing daemon if present (ignore errors)
+    await this.sudo(
+      "launchctl",
+      "bootout",
+      `system/${WAKE_KICKER_LABEL}`,
+    );
+
+    // Install plist to /Library/LaunchDaemons/
+    const cp = await this.sudo("cp", tmpPlist, daemonPlist);
+    if (!cp.ok) {
+      try {
+        unlinkSync(tmpPlist);
+      } catch {}
+      if (cp.stderr.includes("sudo") || cp.stderr.includes("password")) {
+        return {
+          installed: false,
+          error:
+            "sudo requires a password for the wake kicker. Run this once to enable:\n\n" +
+            wakeSetupCommand(),
+        };
+      }
+      return {
+        installed: false,
+        error: `Failed to install wake kicker: ${cp.stderr}`,
+      };
+    }
+
+    // Set correct ownership and permissions for LaunchDaemon
+    await this.sudo("chmod", "644", daemonPlist);
+    await this.sudo("chown", "root:wheel", daemonPlist);
+
+    // Load the daemon
+    const load = await this.sudo(
+      "launchctl",
+      "bootstrap",
+      "system",
+      daemonPlist,
+    );
+    if (!load.ok) {
+      return {
+        installed: false,
+        error: `Failed to load wake kicker: ${load.stderr}`,
+      };
+    }
+
+    try {
+      unlinkSync(tmpPlist);
+    } catch {}
+    return { installed: true };
+  }
+
+  /** Remove the wake-kicker LaunchDaemon if installed. */
+  async removeWakeKicker(): Promise<void> {
+    await this.sudo(
+      "launchctl",
+      "bootout",
+      `system/${WAKE_KICKER_LABEL}`,
+    );
+    await this.sudo(
+      "rm",
+      join(DAEMON_PLIST_DIR, `${WAKE_KICKER_LABEL}.plist`),
+    );
+    const scriptFile = join(SCRIPTS_DIR, "wake-kicker.sh");
+    try {
+      unlinkSync(scriptFile);
+    } catch {}
+  }
+
   async register(task: NightshiftTask): Promise<void> {
     mkdirSync(SCRIPTS_DIR, { recursive: true });
     mkdirSync(PLIST_DIR, { recursive: true });
@@ -378,13 +629,17 @@ bun run src/nightshift/scheduler/refresh-wakes.ts
       throw new Error(`launchctl load failed: ${stderr}`);
     }
 
-    // Schedule wake event and companion refresher if enabled
+    // Schedule wake event, companion refresher, and wake kicker if enabled
     if (task.wakeOnSchedule) {
       const wakeResult = await this.scheduleWake(task);
       await this.ensureWakeRefresher();
+      const kickerResult = await this.ensureWakeKicker();
       if (!wakeResult.scheduled) {
         // Non-fatal: task is registered, just warn about wake
         console.error(`Wake scheduling warning: ${wakeResult.error}`);
+      }
+      if (!kickerResult.installed) {
+        console.error(`Wake kicker warning: ${kickerResult.error}`);
       }
     }
   }
@@ -403,6 +658,9 @@ bun run src/nightshift/scheduler/refresh-wakes.ts
 
     const scriptFile = this.scriptPath(taskId);
     try { unlinkSync(scriptFile); } catch {}
+
+    // Refresh wake kicker — removes it if no wake-enabled tasks remain
+    await this.ensureWakeKicker();
   }
 
   async isRegistered(taskId: string): Promise<boolean> {

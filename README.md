@@ -74,24 +74,33 @@ Enable wakeOnSchedule so my laptop wakes up for it.
 
 #### Wake on Schedule
 
-Set `wakeOnSchedule: true` to ensure your Mac wakes from sleep for scheduled tasks. This does two things:
+Set `wakeOnSchedule: true` to ensure your Mac wakes from sleep for scheduled tasks. This does three things:
 
 1. **`pmset schedule wakeorpoweron`** — schedules macOS to wake 2 minutes before the task runs
-2. **`caffeinate -s`** — prevents the system from sleeping while the task executes
+2. **Wake kicker LaunchDaemon** — a system-level daemon (`com.claude.boost.wake-kicker`) that promotes DarkWake to full wake via `caffeinate -u`. On battery, `pmset` only triggers a DarkWake (no display, no GUI session), which prevents LaunchAgents from firing. The wake kicker runs during DarkWake and asserts user activity to establish the Aqua session.
+3. **`caffeinate -s`** — prevents the system from sleeping while the task executes
 
-A companion launchd job (`com.claude.boost.wake-refresh`) runs twice daily to refresh wake events for the next 24 hours.
+Companion launchd jobs:
+- `com.claude.boost.wake-refresh` (LaunchAgent) — runs twice daily to refresh pmset wake events for the next 24 hours
+- `com.claude.boost.wake-kicker` (LaunchDaemon) — fires 2 minutes before each wake-enabled task to promote DarkWake → full wake
 
-**Setup:** `pmset schedule` requires sudo. To enable passwordless access for just this command:
+**Setup:** Wake scheduling requires passwordless sudo (one time, requires your password):
 
 ```bash
-sudo visudo -f /etc/sudoers.d/boost
+sudo bash -c 'cat > /etc/sudoers.d/boost << "EOF"
+# Boost: wakeOnSchedule support for Claude Code scheduled tasks.
+'$(whoami)' ALL=(root) NOPASSWD: /usr/bin/pmset schedule *
+'$(whoami)' ALL=(root) NOPASSWD: /bin/cp /tmp/com.claude.boost.wake-kicker.plist /Library/LaunchDaemons/com.claude.boost.wake-kicker.plist
+'$(whoami)' ALL=(root) NOPASSWD: /bin/chmod 644 /Library/LaunchDaemons/com.claude.boost.wake-kicker.plist
+'$(whoami)' ALL=(root) NOPASSWD: /usr/sbin/chown root\:wheel /Library/LaunchDaemons/com.claude.boost.wake-kicker.plist
+'$(whoami)' ALL=(root) NOPASSWD: /bin/launchctl bootstrap system /Library/LaunchDaemons/com.claude.boost.wake-kicker.plist
+'$(whoami)' ALL=(root) NOPASSWD: /bin/launchctl bootout system/com.claude.boost.wake-kicker
+'$(whoami)' ALL=(root) NOPASSWD: /bin/rm /Library/LaunchDaemons/com.claude.boost.wake-kicker.plist
+EOF
+chmod 440 /etc/sudoers.d/boost'
 ```
 
-Add this line (replace `yourusername` with your macOS username):
-
-```
-yourusername ALL=(root) NOPASSWD: /usr/bin/pmset schedule *
-```
+If you skip this step, the plugin will print this command when you first enable `wakeOnSchedule`. To undo: `sudo rm /etc/sudoers.d/boost`.
 
 Without this, tasks still run normally — they just can't wake a sleeping machine.
 
