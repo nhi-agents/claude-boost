@@ -48,6 +48,14 @@ The MCP server is launched by Claude Code via `scripts/run-mcp.sh`, which runs `
 
 **Types:** `src/types/index.ts` — All shared TypeScript interfaces (task, execution, finding, tool inputs).
 
+## Versioning
+
+The plugin version lives in two places that **must** be kept in sync:
+- `package.json` → `"version"`
+- `src/index.ts` → MCP server `version` field
+
+Bump the version whenever shipping user-facing changes (features, fixes, schema changes). Use semver: patch for fixes, minor for features, major for breaking changes.
+
 ## Key Patterns
 
 - Each nightshift action handler validates required fields, returns `{ success: boolean, error?: string, ... }`
