@@ -10,7 +10,7 @@ import { handleFindings } from "./tools/findings.js";
 import { closeDb } from "./db/index.js";
 
 const server = new Server(
-  { name: "boost", version: "0.1.0" },
+  { name: "boost", version: "0.2.0" },
   { capabilities: { tools: {} } },
 );
 
