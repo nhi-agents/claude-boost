@@ -50,9 +50,10 @@ The MCP server is launched by Claude Code via `scripts/run-mcp.sh`, which runs `
 
 ## Versioning
 
-The plugin version lives in two places that **must** be kept in sync:
+The plugin version lives in three places that **must** be kept in sync:
 - `package.json` → `"version"`
 - `src/index.ts` → MCP server `version` field
+- `.claude-plugin/marketplace.json` → both the plugin entry `version` and the top-level `version`
 
 Bump the version whenever shipping user-facing changes (features, fixes, schema changes). Use semver: patch for fixes, minor for features, major for breaking changes.
 
